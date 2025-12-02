@@ -44,4 +44,3 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 Backend en puerto ${PORT}`);
 });
-
