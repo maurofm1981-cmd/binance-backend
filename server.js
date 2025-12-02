@@ -1,7 +1,6 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
-require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,86 +10,56 @@ app.use(express.json());
 
 let tradesCache = [];
 let lastUpdate = 0;
-const CACHE_DURATION = 15000;
+const CACHE_DURATION = 20000;
 
 app.get('/api/trades', async (req, res) => {
     const now = Date.now();
 
-    if (tradesCache.length > 8 && now - lastUpdate < CACHE_DURATION) {
+    if (tradesCache.length > 5 && now - lastUpdate < CACHE_DURATION) {
         return res.json({
             success: true,
             trades: tradesCache,
-            stats: {
-                totalTrades: tradesCache.length,
-                totalVolume: tradesCache.reduce((sum, t) => sum + parseFloat(t.volume || 0), 0).toFixed(2)
-            }
+            stats: { totalTrades: tradesCache.length, totalVolume: tradesCache.reduce((s,t)=>s+t.volume,0).toFixed(0) }
         });
     }
 
     try {
-        const response = await axios.get('https://api.binance.us/api/v3/trades', {
-            params: {
-                symbol: 'BTCUSDT',
-                limit: 15
-            },
-            timeout: 8000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0'
-            }
+        const response = await axios.get('https://api2.binance.com/api/v3/trades', {
+            params: { symbol: 'BTCUSDT', limit: 20 },
+            timeout: 10000,
+            headers: { 'Accept': 'application/json' }
         });
 
-        const newTrades = response.data.map((trade) => ({
+        tradesCache = response.data.map(t => ({
             type: 'p2p',
             icon: '₿',
-            title: 'BTC/USDT',
-            amount: parseFloat(trade.qty).toFixed(4) + ' BTC',
-            detail: '$' + parseFloat(trade.price).toFixed(2),
-            time: new Date(trade.time).toLocaleTimeString('es-AR'),
-            volume: trade.qty * trade.price
+            title: 'BTC/USDT Trade',
+            amount: parseFloat(t.qty).toFixed(4) + ' BTC',
+            detail: '$' + parseFloat(t.price).toFixed(0),
+            time: new Date(t.time).toLocaleTimeString('es-AR'),
+            volume: t.qty * t.price
         }));
-
-        tradesCache = newTrades;
-        lastUpdate = Date.now();
+        
+        lastUpdate = now;
 
         res.json({
             success: true,
             trades: tradesCache,
-            stats: {
-                totalTrades: tradesCache.length,
-                totalVolume: tradesCache.reduce((sum, t) => sum + parseFloat(t.volume), 0).toFixed(2)
-            }
+            stats: { totalTrades: tradesCache.length, totalVolume: tradesCache.reduce((s,t)=>s+t.volume,0).toFixed(0) }
         });
 
     } catch (error) {
-        console.log('Error:', error.message);
-
-        if (tradesCache.length > 0) {
-            return res.json({
-                success: true,
-                trades: tradesCache,
-                stats: {
-                    totalTrades: tradesCache.length,
-                    totalVolume: tradesCache.reduce((sum, t) => sum + parseFloat(t.volume), 0).toFixed(2)
-                }
-            });
-        }
-
+        console.log('Binance error:', error.message);
         res.json({
             success: true,
-            trades: [
-                { type: 'p2p', icon: '₿', title: 'BTC/USDT', amount: '0.15 BTC', detail: '$6350', time: new Date().toLocaleTimeString('es-AR'), volume: 952500 },
-                { type: 'p2p', icon: '₿', title: 'BTC/USDT', amount: '0.08 BTC', detail: '$6340', time: new Date().toLocaleTimeString('es-AR'), volume: 507200 },
-                { type: 'p2p', icon: '₿', title: 'BTC/USDT', amount: '0.25 BTC', detail: '$6360', time: new Date().toLocaleTimeString('es-AR'), volume: 1590000 }
+            trades: tradesCache.length > 0 ? tradesCache : [
+                { type:'p2p', icon:'₿', title:'BTC/USDT', amount:'0.25 BTC', detail:'$21,500', time:new Date().toLocaleTimeString(), volume:5375 }
             ],
-            stats: { totalTrades: 3, totalVolume: '3049700' }
+            stats: { totalTrades: tradesCache.length || 1, totalVolume: tradesCache.reduce((s,t)=>s+t.volume,0) || '5375' }
         });
     }
 });
 
-app.get('/health', (req, res) => {
-    res.json({ status: 'ok', cacheSize: tradesCache.length });
-});
+app.get('/health', (req,res) => res.json({ok:true}));
 
-app.listen(PORT, () => {
-    console.log('Backend en puerto ' + PORT);
-});
+app.listen(PORT, () => console.log(`Server on ${PORT}`));
