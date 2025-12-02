@@ -5,42 +5,84 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const BINANCE_API_KEY = process.env.BINANCE_API_KEY;
 
 app.use(cors());
 app.use(express.json());
 
+// Cache de trades
+let tradesCache = [];
+let lastUpdate = 0;
+const CACHE_DURATION = 10000; // 10 segundos
+
 app.get('/api/trades', async (req, res) => {
     try {
-        // Datos simulados pero realistas (fallback si falla Binance)
-        const fallbackTrades = [
-            { type: 'p2p', icon: '₿', title: 'Trade BTC/USDT', amount: '0.0042 BTC', detail: 'Precio: $42,500', time: 'hace 2 min', timestamp: Date.now() - 120000 },
-            { type: 'p2p', icon: 'Ξ', title: 'Trade ETH/USDT', amount: '0.85 ETH', detail: 'Precio: $2,250', time: 'hace 5 min', timestamp: Date.now() - 300000 },
-            { type: 'p2p', icon: '💱', title: 'Trade USDT/ARS', amount: '1000 USDT', detail: 'Precio: $1,050 ARS', time: 'hace 8 min', timestamp: Date.now() - 480000 },
-            { type: 'p2p', icon: '₿', title: 'Trade BTC/USDT', amount: '0.0035 BTC', detail: 'Precio: $42,480', time: 'hace 12 min', timestamp: Date.now() - 720000 },
-            { type: 'p2p', icon: 'Ξ', title: 'Trade ETH/USDT', amount: '1.2 ETH', detail: 'Precio: $2,240', time: 'hace 15 min', timestamp: Date.now() - 900000 }
-        ];
+        // Si el cache es reciente, usar cached
+        if (tradesCache.length > 0 && Date.now() - lastUpdate < CACHE_DURATION) {
+            return res.json({
+                success: true,
+                trades: tradesCache,
+                stats: {
+                    totalTrades: tradesCache.length,
+                    totalVolume: tradesCache.reduce((sum, t) => sum + parseFloat(t.volume || 0), 0).toFixed(2)
+                },
+                source: 'cached'
+            });
+        }
+
+        // Obtener datos REALES de Binance
+        const response = await axios.get('https://api.binance.com/api/v3/trades', {
+            params: {
+                symbol: 'BTCUSDT',
+                limit: 10
+            },
+            timeout: 5000
+        });
+
+        tradesCache = response.data.map((trade, index) => ({
+            type: 'p2p',
+            icon: '₿',
+            title: `Trade BTC/USDT #${trade.id}`,
+            amount: `${parseFloat(trade.qty).toFixed(4)} BTC`,
+            detail: `Precio: $${parseFloat(trade.price).toFixed(2)}`,
+            time: new Date(trade.time).toLocaleString('es-AR'),
+            timestamp: trade.time,
+            volume: trade.qty * trade.price
+        }));
+
+        lastUpdate = Date.now();
 
         res.json({
             success: true,
-            trades: fallbackTrades,
+            trades: tradesCache,
             stats: {
-                totalTrades: fallbackTrades.length,
-                totalVolume: '5500'
-            }
+                totalTrades: tradesCache.length,
+                totalVolume: tradesCache.reduce((sum, t) => sum + parseFloat(t.volume), 0).toFixed(2)
+            },
+            source: 'binance_live'
         });
+
     } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
+        console.error('Error:', error.message);
+        
+        // Fallback si Binance falla
+        res.json({
+            success: true,
+            trades: tradesCache.length > 0 ? tradesCache : [
+                { type: 'p2p', icon: '₿', title: 'Trade BTC/USDT', amount: '0.0042 BTC', detail: 'Precio: $42,500', time: 'hace 2 min', volume: 178500 }
+            ],
+            stats: {
+                totalTrades: tradesCache.length || 1,
+                totalVolume: tradesCache.reduce((sum, t) => sum + parseFloat(t.volume || 0), 0).toFixed(2) || '178500'
+            },
+            source: 'fallback'
         });
     }
 });
 
 app.get('/health', (req, res) => {
-    res.json({ status: 'Backend funcionando ✅' });
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Backend en puerto ${PORT}`);
+    console.log(`🚀 Backend corriendo en puerto ${PORT}`);
 });
