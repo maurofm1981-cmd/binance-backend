@@ -12,12 +12,12 @@ app.use(express.json());
 // Cache de trades
 let tradesCache = [];
 let lastUpdate = 0;
-const CACHE_DURATION = 10000; // 10 segundos
+const CACHE_DURATION = 8000; // 8 segundos
 
 app.get('/api/trades', async (req, res) => {
     try {
         // Si el cache es reciente, usar cached
-        if (tradesCache.length > 0 && Date.now() - lastUpdate < CACHE_DURATION) {
+        if (tradesCache.length > 5 && Date.now() - lastUpdate < CACHE_DURATION) {
             return res.json({
                 success: true,
                 trades: tradesCache,
@@ -33,7 +33,7 @@ app.get('/api/trades', async (req, res) => {
         const response = await axios.get('https://api.binance.com/api/v3/trades', {
             params: {
                 symbol: 'BTCUSDT',
-                limit: 10
+                limit: 15  // Aumentado a 15
             },
             timeout: 5000
         });
@@ -41,13 +41,17 @@ app.get('/api/trades', async (req, res) => {
         tradesCache = response.data.map((trade, index) => ({
             type: 'p2p',
             icon: '₿',
-            title: `Trade BTC/USDT #${trade.id}`,
+            title: `BTC/USDT Trade`,
             amount: `${parseFloat(trade.qty).toFixed(4)} BTC`,
             detail: `Precio: $${parseFloat(trade.price).toFixed(2)}`,
-            time: new Date(trade.time).toLocaleString('es-AR'),
+            time: new Date(trade.time).toLocaleString('es-AR', { 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit' 
+            }),
             timestamp: trade.time,
             volume: trade.qty * trade.price
-        }));
+        })).reverse(); // Invertir para mostrar más recientes arriba
 
         lastUpdate = Date.now();
 
@@ -64,15 +68,30 @@ app.get('/api/trades', async (req, res) => {
     } catch (error) {
         console.error('Error:', error.message);
         
-        // Fallback si Binance falla
+        // Si hay cache previo, devolverlo
+        if (tradesCache.length > 0) {
+            return res.json({
+                success: true,
+                trades: tradesCache,
+                stats: {
+                    totalTrades: tradesCache.length,
+                    totalVolume: tradesCache.reduce((sum, t) => sum + parseFloat(t.volume), 0).toFixed(2)
+                },
+                source: 'cached_fallback'
+            });
+        }
+
+        // Si no hay nada, fallback
+        const fallback = [
+            { type: 'p2p', icon: '₿', title: 'BTC/USDT Trade', amount: '0.0042 BTC', detail: 'Precio: $42,500', time: new Date().toLocaleTimeString('es-AR'), volume: 178500 }
+        ];
+
         res.json({
             success: true,
-            trades: tradesCache.length > 0 ? tradesCache : [
-                { type: 'p2p', icon: '₿', title: 'Trade BTC/USDT', amount: '0.0042 BTC', detail: 'Precio: $42,500', time: 'hace 2 min', volume: 178500 }
-            ],
+            trades: fallback,
             stats: {
-                totalTrades: tradesCache.length || 1,
-                totalVolume: tradesCache.reduce((sum, t) => sum + parseFloat(t.volume || 0), 0).toFixed(2) || '178500'
+                totalTrades: 1,
+                totalVolume: '178500'
             },
             source: 'fallback'
         });
@@ -80,9 +99,14 @@ app.get('/api/trades', async (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    res.json({ 
+        status: 'ok', 
+        timestamp: new Date().toISOString(),
+        cacheSize: tradesCache.length 
+    });
 });
 
 app.listen(PORT, () => {
     console.log(`🚀 Backend corriendo en puerto ${PORT}`);
 });
+
