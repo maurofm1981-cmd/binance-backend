@@ -9,16 +9,14 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// Cache PERSISTENTE
 let tradesCache = [];
 let lastUpdate = 0;
-const CACHE_DURATION = 12000; // 12 segundos
+const CACHE_DURATION = 12000;
 let isUpdating = false;
 
 app.get('/api/trades', async (req, res) => {
     const now = Date.now();
 
-    // Si cache es reciente, SIEMPRE devolverlo (sin solicitar Binance)
     if (tradesCache.length > 8 && now - lastUpdate < CACHE_DURATION) {
         return res.json({
             success: true,
@@ -31,7 +29,6 @@ app.get('/api/trades', async (req, res) => {
         });
     }
 
-    // Solo actualizar si no está en proceso
     if (isUpdating) {
         return res.json({
             success: true,
@@ -55,13 +52,12 @@ app.get('/api/trades', async (req, res) => {
             timeout: 5000
         });
 
-        // Transformar y ordenar
         const newTrades = response.data.map((trade) => ({
             type: 'p2p',
             icon: '₿',
-            title: `BTC/USDT`,
-            amount: `${parseFloat(trade.qty).toFixed(4)} BTC`,
-            detail: `$${parseFloat(trade.price).toFixed(2)}`,
+            title: 'BTC/USDT',
+            amount: parseFloat(trade.qty).toFixed(4) + ' BTC',
+            detail: '$' + parseFloat(trade.price).toFixed(2),
             time: new Date(trade.time).toLocaleTimeString('es-AR'),
             timestamp: trade.time,
             volume: trade.qty * trade.price
@@ -82,10 +78,9 @@ app.get('/api/trades', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('Error Binance:', error.message);
+        console.error('Error:', error.message);
         isUpdating = false;
 
-        // SIEMPRE devolver algo
         if (tradesCache.length > 0) {
             return res.json({
                 success: true,
@@ -98,7 +93,6 @@ app.get('/api/trades', async (req, res) => {
             });
         }
 
-        // Fallback mínimo
         res.json({
             success: true,
             trades: [{
@@ -110,15 +104,18 @@ app.get('/api/trades', async (req, res) => {
                 time: new Date().toLocaleTimeString('es-AR'),
                 volume: 178500
             }],
-            stats: { totalTrades: 1, totalVolume: '178500' },
+            stats: {
+                totalTrades: 1,
+                totalVolume: '178500'
+            },
             source: 'fallback'
         });
     }
 });
 
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
+    res.json({
+        status: 'ok',
         timestamp: new Date().toISOString(),
         cacheSize: tradesCache.length,
         isUpdating: isUpdating
@@ -126,5 +123,5 @@ app.get('/health', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Backend en puerto ${PORT}`);
+    console.log('Backend en puerto ' + PORT);
 });
