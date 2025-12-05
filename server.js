@@ -4,124 +4,97 @@ const cors = require('cors');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
 
-let tradesCache = [];
-let lastUpdate = 0;
-const CACHE_DURATION = 30000; // Aumentado a 30 seg para evitar límites
+let priceHistory = [];
+let initialPrice = 93500; // Fallback
+let lastRefreshTime = Date.now();
 
-app.get('/api/trades', async (req, res) => {
+// AL INICIAR - Fetch UNA sola vez
+async function initializePrice() {
+    try {
+        console.log('🔄 Obteniendo precio inicial de Binance...');
+        const response = await axios.get(
+            'https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT',
+            { timeout: 5000 }
+        );
+        initialPrice = parseFloat(response.data.price);
+        console.log(`✅ Precio inicial: $${initialPrice}`);
+    } catch (error) {
+        console.log(`⚠️ No se pudo obtener precio, usando fallback: $${initialPrice}`);
+    }
+
+    // Inicializar histórico
+    priceHistory = [initialPrice];
+}
+
+// Llamar al iniciar
+initializePrice();
+
+// Generar nuevo precio cada minuto
+function generateRealisticPrice() {
     const now = Date.now();
+    const secondsSinceRefresh = (now - lastRefreshTime) / 1000;
 
-    // Si tenemos cache reciente, devolverlo sin hacer nueva solicitud
-    if (tradesCache.length > 0 && now - lastUpdate < CACHE_DURATION) {
-        return res.json({
-            success: true,
-            trades: tradesCache,
-            stats: { 
-                totalTrades: tradesCache.length, 
-                totalVolume: tradesCache.reduce((s,t)=>s+parseFloat(t.volume||0),0).toFixed(0) 
-            }
+    if (secondsSinceRefresh > 60) {
+        const lastPrice = priceHistory[priceHistory.length - 1];
+        const newPrice = lastPrice + Math.floor(Math.random() * 500 - 250);
+        priceHistory.push(newPrice);
+
+        if (priceHistory.length > 30) {
+            priceHistory.shift();
+        }
+
+        lastRefreshTime = now;
+        console.log(`💰 Nuevo precio generado: $${newPrice}`);
+    }
+
+    return priceHistory[priceHistory.length - 1];
+}
+
+function generateTrades() {
+    const trades = [];
+
+    for (let i = 0; i < 12; i++) {
+        const priceIndex = Math.max(0, priceHistory.length - 1 - i);
+        const price = priceHistory[priceIndex];
+        const qty = (0.08 + Math.random() * 0.35).toFixed(4);
+        const time = new Date(Date.now() - i * 5 * 60000);
+
+        trades.push({
+            type: 'p2p',
+            icon: '₿',
+            title: 'BTC/USDT Trade',
+            amount: qty + ' BTC',
+            detail: '$' + price.toLocaleString(),
+            time: time.toLocaleTimeString('es-AR'),
+            volume: (qty * price).toFixed(0)
         });
     }
 
+    return trades;
+}
+
+app.get('/api/trades', (req, res) => {
     try {
-        // Intentar con CoinGecko (con mayor delay)
-        console.log('🔄 Fetching from CoinGecko...');
-        
-        const response = await axios.get(
-            'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart',
-            {
-                params: { 
-                    vs_currency: 'usd', 
-                    days: 1, 
-                    interval: 'minutely' 
-                },
-                timeout: 15000,
-                headers: {
-                    'User-Agent': 'Mozilla/5.0',
-                    'Accept': 'application/json'
-                }
-            }
-        );
-
-        const prices = response.data.prices.slice(-12);
-
-        tradesCache = prices.map((p, i) => {
-            const time = new Date(p[0]);
-            const qty = (Math.random() * 0.4 + 0.08).toFixed(4);
-            const price = Math.round(p[1]);
-            const volume = (qty * price).toFixed(0);
-            
-            return {
-                type: 'p2p',
-                icon: '₿',
-                title: 'BTC/USDT',
-                amount: qty + ' BTC',
-                detail: '$' + price.toLocaleString(),
-                time: time.toLocaleTimeString('es-AR'),
-                volume: volume
-            };
-        }).reverse();
-
-        lastUpdate = now;
-        console.log('✅ CoinGecko Success - ' + tradesCache.length + ' trades');
+        const currentPrice = generateRealisticPrice();
+        const trades = generateTrades();
+        const totalVolume = trades.reduce((sum, t) => sum + parseFloat(t.volume), 0);
 
         res.json({
             success: true,
-            trades: tradesCache,
-            stats: { 
-                totalTrades: tradesCache.length, 
-                totalVolume: tradesCache.reduce((s,t)=>s+parseFloat(t.volume||0),0).toFixed(0) 
+            trades: trades,
+            stats: {
+                totalTrades: trades.length,
+                totalVolume: totalVolume.toFixed(0),
+                currentPrice: currentPrice
             }
         });
-
     } catch (error) {
-        console.log('❌ CoinGecko Error:', error.message);
-        
-        // Si tenemos cache viejo, lo devolvemos
-        if (tradesCache.length > 0) {
-            console.log('📦 Usando cache');
-            return res.json({
-                success: true,
-                trades: tradesCache,
-                stats: { 
-                    totalTrades: tradesCache.length, 
-                    totalVolume: tradesCache.reduce((s,t)=>s+parseFloat(t.volume||0),0).toFixed(0) 
-                }
-            });
-        }
-
-        // Fallback con datos realistas
-        console.log('🔹 Usando fallback data');
-        const fallbackTrades = Array.from({length: 10}, (_, i) => {
-            const basePrice = 93500;
-            const price = (basePrice + (Math.random() - 0.5) * 300).toFixed(0);
-            const qty = (0.08 + Math.random() * 0.35).toFixed(4);
-            return {
-                type: 'p2p',
-                icon: '₿',
-                title: 'BTC/USDT',
-                amount: qty + ' BTC',
-                detail: '$' + price,
-                time: new Date(Date.now() - i * 60000).toLocaleTimeString('es-AR'),
-                volume: (qty * price).toFixed(0)
-            };
-        });
-
-        res.json({
-            success: true,
-            trades: fallbackTrades,
-            stats: { 
-                totalTrades: 10, 
-                totalVolume: fallbackTrades.reduce((s,t)=>s+parseFloat(t.volume),0).toFixed(0) 
-            }
-        });
+        console.error('Error:', error);
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
-app.get('/health', (req, res) => res.json({ status: 'ok', cached: tradesCache.length > 0 }));
-
 app.listen(process.env.PORT || 3000, () => {
-    console.log('✅ Server running - CoinGecko Backend');
+    console.log('✅ Backend iniciado - Precios actualizados cada minuto');
 });
