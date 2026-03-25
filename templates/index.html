@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auditoría de Pericias | Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { background: #f5f7fb; }
+    .card-kpi { border: 0; border-radius: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+    .kpi-title { font-size: .85rem; color: #6c757d; margin-bottom: .2rem; }
+    .kpi-value { font-size: 1.5rem; font-weight: 700; }
+    .table-wrap { background: #fff; border-radius: 1rem; box-shadow: 0 4px 12px rgba(0,0,0,.06); padding: 1rem; }
+    .risk-CRITICO { color: #b00020; font-weight: 700; }
+    .risk-ALTO { color: #d35400; font-weight: 700; }
+    .risk-MEDIO { color: #b8860b; font-weight: 700; }
+    .risk-BAJO { color: #1e7e34; font-weight: 700; }
+    .var-pos { color: #dc3545; font-weight: 600; }
+    .var-neg { color: #198754; font-weight: 600; }
+    .sticky-head thead th { position: sticky; top: 0; background: #fff; z-index: 1; }
+    .small-muted { font-size: .8rem; color: #6c757d; }
+  </style>
+</head>
+<body>
+<div class="container-fluid py-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h2 class="mb-0">Auditorías de Pericias de Siniestros</h2>
+      <div class="small-muted">Panel mensual y trimestral con foco en desvíos técnicos y riesgo de perito.</div>
+    </div>
+    <button id="btnRefresh" class="btn btn-outline-primary btn-sm">Actualizar datos</button>
+  </div>
+
+  <div class="row g-3 mb-3" id="kpiCards"></div>
+
+  <div class="table-wrap mb-4">
+    <div class="row g-2 align-items-end">
+      <div class="col-md-2">
+        <label class="form-label">Desde (mes)</label>
+        <select id="fDesde" class="form-select form-select-sm"></select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Hasta (mes)</label>
+        <select id="fHasta" class="form-select form-select-sm"></select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Sucursal</label>
+        <select id="fSucursal" class="form-select form-select-sm"></select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Perito</label>
+        <select id="fPerito" class="form-select form-select-sm"></select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Estado desvío</label>
+        <select id="fEstado" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          <option value="detectado">Detectado</option>
+          <option value="confirmado">Confirmado</option>
+        </select>
+      </div>
+    </div>
+    <div class="mt-3 d-flex gap-2">
+      <button id="btnApply" class="btn btn-primary btn-sm">Aplicar filtros</button>
+      <button id="btnClear" class="btn btn-secondary btn-sm">Limpiar</button>
+    </div>
+  </div>
+
+  <div class="table-wrap mb-4">
+    <h5>Vista mensual por perito</h5>
+    <div class="table-responsive sticky-head" style="max-height: 420px;">
+      <table class="table table-sm table-striped table-hover" id="tblMonthly">
+        <thead>
+          <tr>
+            <th>Mes</th><th>Perito</th><th>Sucursal</th><th>Cant. Peritaciones</th>
+            <th>Casos auditados</th><th>Desvíos detectados</th><th>Desvíos confirmados</th>
+            <th>Tasa confirmación %</th><th>Tasa desvío %</th><th>Días prom.</th>
+            <th>Piezas prom.</th><th>Costo MO prom.</th><th>Variación vs sucursal %</th>
+            <th>Score riesgo</th><th>Nivel</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="table-wrap mb-4">
+    <h5>Vista trimestral consolidada</h5>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped" id="tblQuarterly">
+        <thead>
+          <tr>
+            <th>Trimestre</th><th>Perito</th><th>Sucursal</th><th>Cant. Peritaciones</th>
+            <th>Casos auditados</th><th>Desvíos detectados</th><th>Desvíos confirmados</th>
+            <th>Tasa confirmación %</th><th>Tasa desvío %</th><th>Días prom.</th>
+            <th>Piezas prom.</th><th>Costo MO prom.</th><th>Variación vs sucursal %</th>
+            <th>Score riesgo</th><th>Nivel</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <h5>Detalle de repuestos objetados (por STRO)</h5>
+    <div class="table-responsive" style="max-height: 320px;">
+      <table class="table table-sm table-striped" id="tblRepuestos">
+        <thead>
+          <tr>
+            <th>STRO</th><th>Mes</th><th>Perito</th><th>Sucursal</th><th>Repuesto</th><th>Cantidad</th><th>Monto</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  const INITIAL = {{ initial_data | tojson }};
+
+  const fmtNum = (n) => new Intl.NumberFormat('es-AR').format(Number(n || 0));
+  const fmtMoney = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(Number(n || 0));
+  const fmtPct = (n) => `${Number(n || 0).toFixed(2)}%`;
+
+  const el = (id) => document.getElementById(id);
+
+  function setSelectOptions(selectId, items, includeAll = true) {
+    const sel = el(selectId);
+    sel.innerHTML = '';
+    if (includeAll) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = 'Todos';
+      sel.appendChild(opt);
+    }
+    items.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v;
+      opt.textContent = v;
+      sel.appendChild(opt);
+    });
+  }
+
+  function renderKpis(k) {
+    const cards = [
+      ['Total casos auditados', fmtNum(k.total_casos_auditados)],
+      ['Total desvíos detectados', fmtNum(k.total_desvios_detectados)],
+      ['Total desvíos confirmados', fmtNum(k.total_desvios_confirmados)],
+      ['Tasa de desvío', fmtPct(k.tasa_desvio)],
+      ['Monto total desviado', fmtMoney(k.monto_total_desviado)],
+      ['Monto total confirmado', fmtMoney(k.monto_total_confirmado)],
+    ];
+
+    el('kpiCards').innerHTML = cards.map(([title, value]) => `
+      <div class="col-12 col-sm-6 col-lg-2">
+        <div class="card card-kpi">
+          <div class="card-body">
+            <div class="kpi-title">${title}</div>
+            <div class="kpi-value">${value}</div>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function renderMonthly(rows) {
+    const tbody = el('tblMonthly').querySelector('tbody');
+    tbody.innerHTML = rows.map(r => {
+      const varCls = Number(r.VARIACION_VS_SUCURSAL || 0) > 0 ? 'var-pos' : 'var-neg';
+      const riskCls = `risk-${r.NIVEL_RIESGO || 'BAJO'}`;
+      return `
+      <tr>
+        <td>${r.MES_KEY || ''}</td>
+        <td>${r.PERITO || ''}</td>
+        <td>${r.SUCURSAL || ''}</td>
+        <td>${fmtNum(r.CANT_PERITACIONES)}</td>
+        <td>${fmtNum(r.CASOS_AUDITADOS)}</td>
+        <td>${fmtNum(r.DESVIOS_DETECTADOS)}</td>
+        <td>${fmtNum(r.DESVIOS_CONFIRMADOS)}</td>
+        <td>${fmtPct(r.TASA_CONFIRMACION)}</td>
+        <td>${fmtPct(r.TASA_DESVIO)}</td>
+        <td>${Number(r.DIAS_PROMEDIO || 0).toFixed(2)}</td>
+        <td>${Number(r.PIEZAS_PROMEDIO || 0).toFixed(2)}</td>
+        <td>${fmtMoney(r.COSTO_MO_PERITO)}</td>
+        <td class="${varCls}">${fmtPct(r.VARIACION_VS_SUCURSAL)}</td>
+        <td>${Number(r.SCORE_RIESGO || 0).toFixed(0)}</td>
+        <td class="${riskCls}">${r.NIVEL_RIESGO || 'BAJO'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderQuarterly(rows) {
+    const tbody = el('tblQuarterly').querySelector('tbody');
+    tbody.innerHTML = rows.map(r => {
+      const varCls = Number(r.VARIACION_VS_SUCURSAL || 0) > 0 ? 'var-pos' : 'var-neg';
+      const riskCls = `risk-${r.NIVEL_RIESGO || 'BAJO'}`;
+      return `
+      <tr>
+        <td>${r.TRIMESTRE || ''}</td>
+        <td>${r.PERITO || ''}</td>
+        <td>${r.SUCURSAL || ''}</td>
+        <td>${fmtNum(r.CANT_PERITACIONES)}</td>
+        <td>${fmtNum(r.CASOS_AUDITADOS)}</td>
+        <td>${fmtNum(r.DESVIOS_DETECTADOS)}</td>
+        <td>${fmtNum(r.DESVIOS_CONFIRMADOS)}</td>
+        <td>${fmtPct(r.TASA_CONFIRMACION)}</td>
+        <td>${fmtPct(r.TASA_DESVIO)}</td>
+        <td>${Number(r.DIAS_PROMEDIO || 0).toFixed(2)}</td>
+        <td>${Number(r.PIEZAS_PROMEDIO || 0).toFixed(2)}</td>
+        <td>${fmtMoney(r.COSTO_MO_PERITO)}</td>
+        <td class="${varCls}">${fmtPct(r.VARIACION_VS_SUCURSAL)}</td>
+        <td>${Number(r.SCORE_RIESGO || 0).toFixed(0)}</td>
+        <td class="${riskCls}">${r.NIVEL_RIESGO || 'BAJO'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderRepuestos(rows) {
+    const tbody = el('tblRepuestos').querySelector('tbody');
+    tbody.innerHTML = rows.map(r => `
+      <tr>
+        <td>${r.STRO || ''}</td>
+        <td>${r.MES_KEY || ''}</td>
+        <td>${r.PERITO || ''}</td>
+        <td>${r.SUCURSAL || ''}</td>
+        <td>${r.REPUESTO || ''}</td>
+        <td>${fmtNum(r.CANTIDAD)}</td>
+        <td>${fmtMoney(r.MONTO)}</td>
+      </tr>
+    `).join('');
+  }
+
+  function renderAll(data) {
+    renderKpis(data.kpis || {});
+    renderMonthly(data.monthly || []);
+    renderQuarterly(data.quarterly || []);
+    renderRepuestos(data.repuestos || []);
+  }
+
+  function initFilters(filters) {
+    setSelectOptions('fDesde', filters.meses || []);
+    setSelectOptions('fHasta', filters.meses || []);
+    setSelectOptions('fSucursal', filters.sucursales || []);
+    setSelectOptions('fPerito', filters.peritos || []);
+  }
+
+  function queryString(extra = {}) {
+    const p = new URLSearchParams();
+    const map = {
+      desde: el('fDesde').value,
+      hasta: el('fHasta').value,
+      sucursal: el('fSucursal').value,
+      perito: el('fPerito').value,
+      estado: el('fEstado').value,
+      ...extra,
+    };
+    Object.entries(map).forEach(([k, v]) => { if (v) p.set(k, v); });
+    return p.toString();
+  }
+
+  async function fetchData(force = false) {
+    const qs = queryString(force ? { refresh: 'true' } : {});
+    const res = await fetch(`/api/data?${qs}`);
+    const data = await res.json();
+    renderAll(data);
+  }
+
+  function clearFilters() {
+    ['fDesde', 'fHasta', 'fSucursal', 'fPerito', 'fEstado'].forEach(id => el(id).value = '');
+    fetchData(false);
+  }
+
+  el('btnApply').addEventListener('click', () => fetchData(false));
+  el('btnClear').addEventListener('click', clearFilters);
+  el('btnRefresh').addEventListener('click', () => fetchData(true));
+
+  initFilters(INITIAL.filters || {});
+  renderAll(INITIAL);
+</script>
+</body>
+</html>
